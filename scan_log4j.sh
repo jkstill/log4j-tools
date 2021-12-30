@@ -2,9 +2,9 @@
 
 : << 'SETUP'
 
- perl -m venv log4j-env
+ python3 -m venv log4j-env
  source log4j-env/bin/activate
- pip -r requirements.txt
+ pip install -r requirements.txt
 
 SETUP
 
