@@ -1,10 +1,10 @@
 import os
 import re
+import sys
 from collections import defaultdict, namedtuple
 from typing import Dict, Set
 
 import easyargs
-from colorama import Fore, Style
 from javalang import parse as parser
 from javalang.parser import JavaSyntaxError
 from javalang.tree import (
@@ -17,8 +17,6 @@ from javalang.tree import (
     ReferenceType,
     VariableDeclaration,
 )
-from tqdm import tqdm
-
 
 CalleeDesc = namedtuple("CalleeDesc", ["class_name", "method_name"])
 
@@ -38,7 +36,7 @@ def traverse(t, visitor):
 
 
 def print_file_name(filename):
-    tqdm.write(Fore.RED + filename + Style.RESET_ALL)
+    print(filename);
 
 
 class Scanner:
@@ -127,18 +125,29 @@ class Scanner:
 
     def print_node_code_lines(self, nodes):
         for node in nodes:
-            tqdm.write(
-                Fore.GREEN
-                + f"{node.position.line:5d}  "
-                + Style.RESET_ALL
-                + f"{self.text_by_lines[node.position.line - 1]}"
-            )
+            print("{:5} + {}".format(node.position.line,self.text_by_lines[node.position.line - 1]))
 
 
 def quick_match(filename, match_regex_compiled):
-    txt = open(filename).read()
-    return match_regex_compiled.search(txt)
-
+    try:
+        txt = open(filename).read()
+        return match_regex_compiled.search(txt)
+    except FileNotFoundError as fnf_error:
+        print(fnf_error, file=sys.stderr)
+        print('', file=sys.stderr)
+    except PermissionError as pe:
+        # NFS mounts may not allow root access
+        # CIFS mounts should not have this issue
+        print("Permissions Error: {}".format(pe), file=sys.stderr)
+        print("While accessing: {}".format(filename), file=sys.stderr)
+        print("root may not be able to read NFS mounted files", file=sys.stderr)
+        print('',file=sys.stderr)
+        return False
+    except Exception as e:
+        print("Unknown Error: {}".format(e), file=sys.stderr)
+        print("While accessing: {}".format(filename), file=sys.stderr)
+        print('',file=sys.stderr)
+        return False
 
 def find_use_in_file(filename, root_folder, class_regex, method_regex):
     class_regex_compiled = re.compile(class_regex)
@@ -161,9 +170,7 @@ def find_use_in_file(filename, root_folder, class_regex, method_regex):
         extends = True
         scanner.print_node_code_lines(nodelist)
     if extends:
-        tqdm.write(
-            f"{Fore.RED}!!! Warning: vulnerable class extended !!!{Style.RESET_ALL}"
-        )
+        print("Warning: vulnerable class extended!!!")
 
 
 def traverse_folder(root_dir):
@@ -180,7 +187,8 @@ def scan(
     method_regex="(info|warn|error|log|debug|trace|fatal|catching|throwing|traceEntry|printf|logMessage)",
 ):
     parsing_failed_files = []
-    for filename in tqdm(list(traverse_folder(root_dir))):
+    for filename in list(traverse_folder(root_dir)):
+        #print("file: {}".format(filename))
         try:
             find_use_in_file(filename, root_dir, class_regex, method_regex)
         except (IOError, JavaSyntaxError):

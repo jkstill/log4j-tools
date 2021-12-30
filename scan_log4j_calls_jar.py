@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import IntEnum
@@ -7,11 +8,9 @@ from typing import List, Set, Tuple
 from zipfile import BadZipFile, ZipFile
 
 import easyargs
-from colorama import Fore, Style
 from jawa.classloader import ClassLoader
 from jawa.constants import InterfaceMethodRef, MethodReference
 from jawa.methods import Method
-from tqdm import tqdm
 
 
 class JVMOpcodes(IntEnum):
@@ -39,7 +38,7 @@ class CallTarget:
 
 
 def print_file_name(filename):
-    tqdm.write(f"\n\n\nProcessing .jar file:\n{filename}")
+    print("\n\n\nProcessing .jar file:\n{}".format(filename))
 
 
 def print_caller_results(class_name, calling_methods_by_target):
@@ -50,22 +49,16 @@ def print_caller_results(class_name, calling_methods_by_target):
             for ct in calling_methods_by_target
         }
 
-        tqdm.write(f"\nClass: {Fore.GREEN}{class_name}{Style.RESET_ALL}")
-        tqdm.write("Vulnerable call | Methods")
-        tqdm.write("----------------+---------")
+        print("\nClass: {}".format(class_name))
+        print("Vulnerable call | Methods")
+        print("----------------+---------")
         for callee, callers in calling_methods_collapsed.items():
-            tqdm.write(
-                Fore.RED
-                + f"{callee.method_name:15}"
-                + Style.RESET_ALL
-                + " | "
-                + ", ".join(callers)
-            )
+            print("{:15}".format(callee.method_name[0:14]) + " | " + ", ".join(callers))
 
 
 def print_matching_classes(classes):
-    tqdm.write(f"\nClasses found:")
-    tqdm.write(", ".join([Fore.GREEN + c + Style.RESET_ALL for c in classes]))
+    print("\nClasses found:")
+    print(", ".join([c for c in classes]))
 
 
 def jar_quickmatch(filename, match_string):
@@ -78,7 +71,7 @@ def jar_quickmatch(filename, match_string):
                     return True
             return False
     except (IOError, BadZipFile):
-        tqdm.write(f"Could not open file: {filename}")
+        print("Could not open file: {}".format(filename), file=sys.stderr)
 
 
 class XrefAnalysis:
@@ -236,20 +229,18 @@ def run_scanner(
     no_quickmatch=False,
 ):
     if not no_quickmatch:
-        tqdm.write(f"Precondition grep filter: {quickmatch_string}")
+        print("Precondition grep filter: {}".format(quickmatch_string))
     if class_existence:
-        tqdm.write(f"Looking for presence of classes: {class_regex}")
+        print("Looking for presence of classes: {}".format(class_regex))
     else:
-        tqdm.write(
-            f"Looking for calls to: class pattern {class_regex}, method name pattern: {method_regex}"
-        )
-    tqdm.write("Scanning folder for .jar files")
+        print("Looking for calls to: class pattern {}, method name pattern: {}".format(class_regex, method_regex))
+    print("Scanning folder for .jar files")
 
     files_to_scan = traverse_folder(
         root_dir, quickmatch_string.encode("utf-8"), not no_quickmatch
     )
 
-    for filename in tqdm(files_to_scan):
+    for filename in files_to_scan:
         try:
             xref_analysis = XrefAnalysis(
                 filename, class_regex, method_regex, caller_block
@@ -265,7 +256,7 @@ def run_scanner(
                     xref_analysis.caller_block_compiled,
                 )
         except ValueError as e:
-            tqdm.write(f"Parsing error in {filename}")
+            print("Parsing error in {}".format(filename), file=sys.stderr)
 
 
 if __name__ == "__main__":

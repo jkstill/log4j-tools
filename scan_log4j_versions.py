@@ -4,8 +4,6 @@ from collections import namedtuple
 from enum import Enum, IntEnum, auto
 from typing import IO, Set
 from zipfile import BadZipFile, ZipFile
-from tarfile import open as tar_open
-from tarfile import CompressionError, ReadError
 
 JNDIMANAGER_CLASS_NAME = "core/net/JndiManager.class"
 JNDILOOKUP_CLASS_NAME = "core/lookup/JndiLookup.class"
@@ -14,15 +12,6 @@ PATCH_STRING_216 = b"log4j2.enableJndi"
 PATCH_STRING_217 = b"isJndiLookupEnabled"
 PATCH_STRING_21 = b"LOOKUP"
 PATCH_STRING_BACKPORT = b"JNDI is not supported"
-
-RED = "\x1b[31m"
-GREEN = "\x1b[32m"
-YELLOW = "\x1b[33m"
-RESET_ALL = "\x1b[0m"
-
-ZIP_EXTENSIONS = {".jar", ".war", ".sar", ".ear", ".par", ".zip", ".apk"}
-TAR_EXTENSIONS = {".gz", ".tar"}
-
 
 class JndiMgrVer(IntEnum):
     NOT_FOUND = 0
@@ -92,10 +81,10 @@ def confusion_message(filename: str, classname: str):
 
 def version_message(filename: str, diagnosis: Diag):
     messages = {
-        Status.FIX: GREEN + "fixed" + RESET_ALL,
-        Status.VULN: RED + "vulnerable" + RESET_ALL,
-        Status.PARTIAL: YELLOW + "mitigated" + RESET_ALL,
-        Status.INCONSISTENT: RED + "inconsistent" + RESET_ALL,
+        Status.FIX: "fixed",
+        Status.VULN: "vulnerable",
+        Status.PARTIAL: "mitigated",
+        Status.INCONSISTENT: "inconsistent",
     }
     print(filename + ": " + messages[diagnosis.status] + " " + diagnosis.note)
 
@@ -121,7 +110,7 @@ def class_version_jndi_manager(classfile_content: bytes) -> JndiMgrVer:
     return JndiMgrVer.v20_v214
 
 
-def zip_file(file, rel_path):
+def test_file(file: IO[bytes], rel_path: str):
     try:
         with ZipFile(file) as jarfile:
             jndi_manager_status = JndiMgrVer.NOT_FOUND
@@ -159,6 +148,7 @@ def zip_file(file, rel_path):
                     ),
                 )
                 version_message(rel_path, diagnosis)
+
     except (IOError, BadZipFile):
         return
     except RuntimeError as e:
@@ -166,30 +156,8 @@ def zip_file(file, rel_path):
         return
 
 
-def tar_file(file: IO[bytes], rel_path: str):
-    try:
-        with tar_open(fileobj=file) as tarfile:
-            for item in tarfile:
-                # check for path traversal
-                if item.isfile() and acceptable_filename(item.name):
-                    fileobj = tarfile.extractfile(item)
-                    new_path = rel_path + "/" + item.name
-                    test_file(fileobj, new_path)
-    except (IOError, FileExistsError, CompressionError, ReadError) as e:
-        print(rel_path + ": " + str(e))
-        return
-
-
-def test_file(file: IO[bytes], rel_path: str):
-    if any(rel_path.endswith(ext) for ext in ZIP_EXTENSIONS):
-        zip_file(file, rel_path)
-
-    elif any(rel_path.endswith(ext) for ext in TAR_EXTENSIONS):
-        tar_file(file, rel_path)
-
-
 def acceptable_filename(filename: str):
-    return any(filename.endswith(ext) for ext in ZIP_EXTENSIONS | TAR_EXTENSIONS)
+    return any(filename.endswith(ext) for ext in [".jar", ".war", ".sar", ".ear", ".par", ".zip"])
 
 
 def run_scanner(root_dir: str, exclude_dirs: Set[str]):
@@ -209,7 +177,18 @@ def run_scanner(root_dir: str, exclude_dirs: Set[str]):
                         with open(full_path, "rb") as file:
                             test_file(file, rel_path)
                     except FileNotFoundError as fnf_error:
-                        print(fnf_error)
+                        print(fnf_error, file=sys.stderr)
+                        print('', file=sys.stderr)
+                    except PermissionError as perm_error:
+                        print(perm_error, file=sys.stderr)
+                        # NFS mounts may not allow root access
+                        # CIFS mounts should not have this issue
+                        print("root may not be able to read NFS mounted files", file=sys.stderr)
+                        print('', file=sys.stderr)
+                    except Exception as e:
+                        print('Unknown Error', file=sys.stderr)
+                        print(e,file=sys.stderr)
+                        print('', file=sys.stderr)
     elif os.path.isfile(root_dir):
         if acceptable_filename(root_dir):
             with open(root_dir, "rb") as file:
